@@ -12,3 +12,15 @@ Use the following command.
 4. `local_stop`:
 5. `status`: list the status of all containers
 6. `collect`: collect all traces to local.
+
+
+
+An example of the configuration file `cfg.json`
+```
+{
+	"host": [
+		"xxx.xxx.xxx.xxx",
+		"xxx.xxx.xxx.xxx"
+		]
+}
+```
