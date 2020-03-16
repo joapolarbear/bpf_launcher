@@ -143,19 +143,10 @@ else
     NVPROF_COMMAND=""
 fi
 
-
-function checkDownloadGit {
-    if [ ! -s "$2" ]; then
-        rm -rf $2
-    fi
-    git clone --recurse-submodules https://github.com/$1/$2.git
-}
-
-
 ### install NCCL
 if [ "$NCCL_REINSTALL" = "1" ]; then
     cd /root
-    checkDownloadGit joapolarbear nccl
+    git clone --recurse-submodules -b byteprofile https://github.com/joapolarbear/nccl.git
     cd nccl && \
     make -j src.build && make pkg.txz.build && \
     mkdir -p /usr/local/nccl && \
@@ -167,7 +158,9 @@ fi
 ### test nccl
 if [ "$NCCL_REINSTALL" = "1" ]; then
     cd /root
-    checkDownloadGit NVIDIA nccl-tests
+    if [ ! -s "nccl-tests" ]; then
+        git clone --recurse-submodules https://github.com/NVIDIA/nccl-tests.git
+    fi
     cd nccl-tests
     make clean && make
     ./build/all_reduce_perf -b 8 -e 256M -f 2 -g ${ARNOLD_WORKER_GPU}
