@@ -20,13 +20,48 @@ fi
 export USE_CUDA_PATH=/usr/local/cuda:/usr/local/cudnn/lib64 \
     PATH=/usr/local/cuda/bin:/usr/local/nvidia/bin:${PATH} \
     LD_LIBRARY_PATH=/usr/local/cudnn/lib64:/usr/local/cuda/lib64:/usr/local/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/nccl/lib:$LD_LIBRARY_PATH \
-    LIBRARY_PATH=/usr/local/lib:/usr/local/cudnn/lib64:/usr/local/cuda/lib64:$LIBRARY_PATH \
+    LIBRARY_PATH=/usr/local/lib:/usr/local/cudnn/lib64:/usr/local/cuda/lib64:/usr/local/nccl/lib/:$LIBRARY_PATH \
     LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
 
 export TRUNCATE_NORM="${TRUNCATE_NORM:-1}"
 export BYTEPS_BRANCH="${BYTEPS_BRANCH:-byteprofile}"
 export GLUON_NLP_BRANCH="${GLUON_NLP_BRANCH:-bert-byteprofile}"
 export DMLC_ROLE="${DMLC_ROLE:-worker}"
+
+
+### GPU info
+echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
+if [ "$NVIDIA_VISIBLE_DEVICES" = "all" ]; then
+    export WORKER_GPU_NUM=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
+    export GPUS=$(seq -s "," 0 $(expr ${WORKER_GPU_NUM} - 1))
+else
+    readarray -d , -t strarr <<<"$NVIDIA_VISIBLE_DEVICES"
+    export WORKER_GPU_NUM=${#strarr[*]}
+    export GPUS=$NVIDIA_VISIBLE_DEVICES
+fi 
+
+### NCCL
+if [ "$NCCL_REINSTALL" = "1" ]; then
+    cd /root
+    git clone --recurse-submodules -b byteprofile https://github.com/joapolarbear/nccl.git
+    cd nccl && \
+    make -j src.build && make pkg.txz.build && \
+    mkdir -p /usr/local/nccl && \
+    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 && \
+    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
+    ldconfig
+    ln -sf /usr/local/nccl/include/* /usr/include/
+fi
+
+if [ "$NCCL_REINSTALL" = "1" ]; then
+    cd /root
+    if [ ! -s "nccl-tests" ]; then
+        git clone --recurse-submodules https://github.com/NVIDIA/nccl-tests.git
+    fi
+    cd nccl-tests
+    make clean && make
+    ./build/all_reduce_perf -b 8 -e 256M -f 2 -g ${WORKER_GPU_NUM}
+fi 
 
 # ----------------- re-install horovod and gluon-nlp -----------------
 if [ "$BPF_INSTALL" = "1" ]; then 
@@ -67,7 +102,7 @@ unzip -o *.zip
 
 DATA="/tmp/wiki_en_uncased_data/wiki_en_uncased_0*"
 OPTIMIZER="bertadam"
-cd /root
+cd /root    
 
 # optimizer parameters
 export LR=0.00354;   
@@ -75,9 +110,7 @@ export OPTIONS=--synthetic_data\ --eval_use_npz;
 export WARMUP_RATIO=0.1;          
 export NUMSTEPS=281250;   
 export CKPTDIR=ckpt_stage1_lamb_16k-682a361-c5fd6fc-0412-cu90; 
-export ACC=1;         
-export GPUS=$NVIDIA_VISIBLE_DEVICES
-
+export ACC=1;  
 # start
 export TRUNCATE_NORM="${TRUNCATE_NORM:-1}"
 export LAMB_BULK="${LAMB_BULK:-30}"
@@ -96,7 +129,7 @@ export OPTIMIZER="${OPTIMIZER:-lamb}"
 export WARMUP_RATIO="${WARMUP_RATIO:-0.003125}"
 export BYTEPS_PARTITION_BYTES="${BYTEPS_PARTITION_BYTES:-4096000}"
 export BYTEPS_NCCL_GROUP_SIZE="${BYTEPS_NCCL_GROUP_SIZE:-16}"
-export NVIDIA_VISIBLE_DEVICES="${GPUS:-0,1,2,3,4,5,6,7}"
+# export NVIDIA_VISIBLE_DEVICES="${GPUS:-0,1,2,3,4,5,6,7}"
 export DMLC_WORKER_ID="${DMLC_WORKER_ID:-0}"
 export DMLC_NUM_WORKER="${DMLC_NUM_WORKER:-1}"
 export NCCL_MIN_NRINGS="${NCCL_MIN_NRINGS:-16}"
@@ -108,12 +141,13 @@ export DATA="${DATA:-/data/book-corpus/book-corpus-large-split/*.train,/data/enw
 export DATAEVAL="${DATAEVAL:-/data/book-corpus/book-corpus-large-split/*.test,/data/enwiki/enwiki-feb-doc-split/*.test}"
 
 # Get the batch size
-echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
-readarray -d , -t strarr <<<"$NVIDIA_VISIBLE_DEVICES"
-export ARNOLD_WORKER_GPU=${#strarr[*]}
-export ARNOLD_WORKER_NUM=${DMLC_NUM_WORKER}
-TOTAL_BATCH_SIZE=$(($ARNOLD_WORKER_GPU*$ARNOLD_WORKER_NUM*$1))
-TOTAL_GPU_NUM=$(($ARNOLD_WORKER_GPU*$ARNOLD_WORKER_NUM))
+if [ "$1" = "" ]; then
+    BATCH_PER_GPU=10
+else
+    BATCH_PER_GPU=$1
+fi
+TOTAL_BATCH_SIZE=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER*$BATCH_PER_GPU))
+TOTAL_GPU_NUM=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER))
 echo "total batch size is $TOTAL_BATCH_SIZE"
 
 if [ "${BYTEPS_TRACE_ON}" = "1" ]; then
@@ -123,9 +157,7 @@ if [ "${BYTEPS_TRACE_ON}" = "1" ]; then
     mkdir -p ${BYTEPS_TRACE_DIR}
 fi
 
-export HOST_LIST="${HOST_LIST:-localhost:${ARNOLD_WORKER_GPU}}"
-LISTEN_PORT=12345
-
+### RDMA
 RDMA_DEVICE=mlx5_0 \
 if [ "$RDMA_DEVICE" != "" ]; then
         export NCCL_IB_DISABLE=0 
@@ -136,6 +168,7 @@ else
         export NCCL_IB_DISABLE=1 
 fi
 
+### Nvprof
 export NVPROF="${NVPROF:-0}"
 if [ "$NVPROF" = "1" ]; then
     NVPROF_COMMAND="nvprof --print-gpu-trace -o ${BYTEPS_TRACE_DIR}/nvprof/simpleMPI.%q{OMPI_COMM_WORLD_RANK}.nvvp"
@@ -143,29 +176,9 @@ else
     NVPROF_COMMAND=""
 fi
 
-### install NCCL
-if [ "$NCCL_REINSTALL" = "1" ]; then
-    cd /root
-    git clone --recurse-submodules -b byteprofile https://github.com/joapolarbear/nccl.git
-    cd nccl && \
-    make -j src.build && make pkg.txz.build && \
-    mkdir -p /usr/local/nccl && \
-    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 && \
-    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
-    ldconfig
-fi
-
-### test nccl
-if [ "$NCCL_REINSTALL" = "1" ]; then
-    cd /root
-    if [ ! -s "nccl-tests" ]; then
-        git clone --recurse-submodules https://github.com/NVIDIA/nccl-tests.git
-    fi
-    cd nccl-tests
-    make clean && make
-    ./build/all_reduce_perf -b 8 -e 256M -f 2 -g ${ARNOLD_WORKER_GPU}
-fi 
-
+### for horovod
+export HOST_LIST="${HOST_LIST:-localhost:${WORKER_GPU_NUM}}"
+LISTEN_PORT=12345
 
 ### take different actions for different hosts
 if [ "${DMLC_WORKER_ID}" = "0" ]; then
@@ -215,7 +228,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
             --log_interval $LOGINTERVAL \
             --total_batch_size $TOTAL_BATCH_SIZE \
             --total_batch_size_eval $TOTAL_BATCH_SIZE \
-            --gpus $NVIDIA_VISIBLE_DEVICES \
+            --gpus $GPUS \
             --synthetic_data \
             $OPTIONS 
 else
