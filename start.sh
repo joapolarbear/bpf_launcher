@@ -11,7 +11,7 @@ do
 	all_ip_str=${all_ip_str},${all_ip[$id]}:${process_num}
 done
 
-HOROVOD_IMAGE_V=cuda10.0_mx1.5.1_byteps
+HOROVOD_IMAGE_V=cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1
 # get the number of hosts
 host_num=${#all_ip[@]}
 
@@ -67,7 +67,7 @@ function checkStatus {
 if [ "$1" = "start" ]; then
 	COMMAND="bash ${HOME_PATH}/byteps_launcher/example/mxnet-gluon/run_gluon_bert.sh 10"
 	if [ "$2" = "install" ]; then
-		DOCKER_IMAGE=haaanpeng/byteprofile:cuda10.0_mx1.5.1_byteps
+		DOCKER_IMAGE=haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1
 		BPF_INSTALL=1
 	else
 		# no need to re-install horovod and gluon-nlp
@@ -223,6 +223,9 @@ elif [ "$1" = "retrive" ]; then
 	docker commit -c "ENV BYTEPS_TRACE_DIR='' BYTEPS_TRACE_START_STEP='' BYTEPS_TRACE_END_STEP='' BYTEPS_TRACE_ON='' " test hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
 	docker push hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
 	docker rmi hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
+
+	nvidia-docker run -it --shm-size 32768m  --net host --name byteprofile haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1 /bin/bash
+	docker run --rm -it --shm-size 32768m --runtime=nvidia --net host --name byteprofile haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1 /bin/bash
 else
 	echo "Argument Error!: unexpected '$1'"
 	exit 1

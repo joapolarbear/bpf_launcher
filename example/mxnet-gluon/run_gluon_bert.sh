@@ -30,25 +30,27 @@ export DMLC_ROLE="${DMLC_ROLE:-worker}"
 
 
 ### GPU info
-echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
 if [ "$NVIDIA_VISIBLE_DEVICES" = "all" ]; then
     export WORKER_GPU_NUM=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
     export GPUS=$(seq -s "," 0 $(expr ${WORKER_GPU_NUM} - 1))
 else
-    readarray -d , -t strarr <<<"$NVIDIA_VISIBLE_DEVICES"
+    IFS=, read -a strarr <<<"$NVIDIA_VISIBLE_DEVICES"
     export WORKER_GPU_NUM=${#strarr[*]}
     export GPUS=$NVIDIA_VISIBLE_DEVICES
 fi 
+echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
+echo "WORKER_GPU_NUM: $WORKER_GPU_NUM"
+echo "GPUS: $GPUS"
 
 ### NCCL
 if [ "$NCCL_REINSTALL" = "1" ]; then
     cd /root
     git clone --recurse-submodules -b byteprofile https://github.com/joapolarbear/nccl.git
-    cd nccl && \
-    make -j src.build && make pkg.txz.build && \
-    mkdir -p /usr/local/nccl && \
-    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 && \
-    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
+    cd nccl 
+    make -j src.build && make pkg.txz.build
+    mkdir -p /usr/local/nccl 
+    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 
+    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf 
     ldconfig
     ln -sf /usr/local/nccl/include/* /usr/include/
 fi
