@@ -1,13 +1,13 @@
 #!/bin/bash -e
 
 ### Get all ip address of hosts
-all_ip=$(python3 utils.py --option readcfg_host)
+all_ip=($(python3 utils.py --option readcfg_host))
 ### Get the number of hosts
 host_num=${#all_ip[@]}
 
 ## Get the number of visible devices and host list
 DOCKER_VISIBLE_DEVICES=$(python3 utils.py --option readcfg_visible_device)
-readarray -d , -t strarr <<<"$DOCKER_VISIBLE_DEVICES"
+IFS=, read -a strarr <<<"$DOCKER_VISIBLE_DEVICES"
 process_num=${#strarr[*]}
 all_ip_str=${all_ip[0]}:${process_num}
 for(( id=1; id < ${#all_ip[@]}; id++ ))
@@ -108,16 +108,17 @@ elif [ "$1" = "status" ]; then
 	done
 
 elif [ "$1" = "collect" ]; then
-	cd ${LOCAL_HOME_PATH}
 	if [ -s "${LOCAL_HOME_PATH}/traces" ]; then
 		rm -rf ${LOCAL_HOME_PATH}/traces/*
 	else
 		mkdir -p ${LOCAL_HOME_PATH}/traces
 	fi
+	cd ${LOCAL_HOME_PATH}
 
 	### Remote copy trace files
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
+		echo "Copying traces from ${HOST_USERNAME}@${all_ip[$id]}:${HOST_TRACE_PATH} to ${LOCAL_HOME_PATH}/traces/host$id"
 		scp -r ${HOST_USERNAME}@${all_ip[$id]}:${HOST_TRACE_PATH} ${LOCAL_HOME_PATH}/traces/host$id
 	done
 
@@ -221,4 +222,4 @@ else
 	exit 1
 fi
 
-cd ${LOCAL_HOME_PATH}/byteps_launcher
+cd ${LOCAL_HOME_PATH}/bpf_launcher
