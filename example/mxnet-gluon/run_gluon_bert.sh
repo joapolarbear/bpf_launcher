@@ -2,32 +2,12 @@
 # A script running in a container
 
 ## Set enviroment variables related to profiling
-export BYTEPS_TRACE_ON="${BYTEPS_TRACE_ON:-1}"
-export BYTEPS_TRACE_END_STEP="${BYTEPS_TRACE_END_STEP:-30}"
-export BYTEPS_TRACE_START_STEP="${BYTEPS_TRACE_START_STEP:-10}"
-export BYTEPS_TRACE_DIR="${BYTEPS_TRACE_DIR:-${HOME}/traces}"
-# export BYTEPS_TRACE_DEBUG=1
-export MXNET_GPU_WORKER_NTHREADS=1
-export MXNET_EXEC_BULK_EXEC_TRAIN=0
-
-## install dependencies
-if [ "$BPF_INSTALL" = "1" ]; then
-    apt-get update && apt-get install -y librdmacm-dev
-    apt install -y libopenmpi-dev
+if [ "${BYTEPS_TRACE_ON}" = "1" ]; then
+    echo "BYTEPS_TRACE_DIR: ${BYTEPS_TRACE_DIR}"
+    echo "BYTEPS_TRACE_START_STEP: ${BYTEPS_TRACE_START_STEP}"
+    echo "BYTEPS_TRACE_END_STEP: ${BYTEPS_TRACE_END_STEP}"
+    mkdir -p ${BYTEPS_TRACE_DIR}
 fi
-
-## other evnvironment variables
-export USE_CUDA_PATH=/usr/local/cuda:/usr/local/cudnn/lib64 \
-    PATH=/usr/local/cuda/bin:/usr/local/nvidia/bin:${PATH} \
-    LD_LIBRARY_PATH=/usr/local/cudnn/lib64:/usr/local/cuda/lib64:/usr/local/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:/usr/local/nccl/lib:$LD_LIBRARY_PATH \
-    LIBRARY_PATH=/usr/local/lib:/usr/local/cudnn/lib64:/usr/local/cuda/lib64:/usr/local/nccl/lib/:$LIBRARY_PATH \
-    LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
-
-export TRUNCATE_NORM="${TRUNCATE_NORM:-1}"
-export BYTEPS_BRANCH="${BYTEPS_BRANCH:-byteprofile}"
-export GLUON_NLP_BRANCH="${GLUON_NLP_BRANCH:-bert-byteprofile}"
-export DMLC_ROLE="${DMLC_ROLE:-worker}"
-
 
 ### GPU info
 if [ "$NVIDIA_VISIBLE_DEVICES" = "all" ]; then
@@ -42,11 +22,18 @@ echo "NVIDIA_VISIBLE_DEVICES: $NVIDIA_VISIBLE_DEVICES"
 echo "WORKER_GPU_NUM: $WORKER_GPU_NUM"
 echo "GPUS: $GPUS"
 
-### NCCL
+### root directory
+if [ "$HOME" = "/root" ]; then
+    export ROOT_DIR=/root
+else
+    export ROOT_DIR=$HOME/hphu
+    mkdir -p $ROOT_DIR
+fi
+
+########################## re-install something ##########################
+# ----------------- re-install nccl -----------------
 if [ "$NCCL_REINSTALL" = "1" ]; then
-    cd /root
-    git clone --recurse-submodules -b byteprofile https://github.com/joapolarbear/nccl.git
-    cd nccl 
+    cd ${ROOT_DIR}/nccl && git pull
     make -j src.build && make pkg.txz.build
     mkdir -p /usr/local/nccl 
     tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 
@@ -56,7 +43,7 @@ if [ "$NCCL_REINSTALL" = "1" ]; then
 fi
 
 if [ "$NCCL_REINSTALL" = "1" ]; then
-    cd /root
+    cd ${ROOT_DIR}
     if [ ! -s "nccl-tests" ]; then
         git clone --recurse-submodules https://github.com/NVIDIA/nccl-tests.git
     fi
@@ -71,11 +58,7 @@ if [ "$BPF_INSTALL" = "1" ]; then
     pip3 uninstall -y horovod
     python3 setup.py clean --all
 
-    cd /usr/local 
-    rm -rf horovod
-    git clone --recurse-submodules https://github.com/joapolarbear/horovod
-
-    cd /usr/local/horovod
+    git pull
     python3 setup.py sdist
     HOROVOD_NCCL_HOME=/usr/local/nccl \
     HOROVOD_GPU_ALLREDUCE=NCCL \
@@ -85,27 +68,19 @@ if [ "$BPF_INSTALL" = "1" ]; then
     HOROVOD_WITHOUT_PYTORCH=1 \
     HOROVOD_WITH_MXNET=1 pip3 install --no-cache-dir dist/horovod*
 
-    cd /root
-    rm -rf gluon-nlp
-    git clone -b $GLUON_NLP_BRANCH https://github.com/joapolarbear/gluon-nlp.git
-    cd gluon-nlp
+    ### install horovod
+    cd /root/gluon-nlp
     python3 setup.py install
 fi
-
-### download dataset
-mkdir -p /root/.mxnet/models
-cd /root/.mxnet/models 
-wget https://apache-mxnet.s3-accelerate.dualstack.amazonaws.com/gluon/dataset/vocab/book_corpus_wiki_en_uncased-a6607397.zip
-apt-get install -y zip
-unzip -o *.zip
-
+########################################################################
 
 # ---------------------- start to run ----------------------
-
 DATA="/tmp/wiki_en_uncased_data/wiki_en_uncased_0*"
 OPTIMIZER="bertadam"
-cd /root    
+cd ${ROOT_DIR}    
 
+## other evnvironment variables
+export DMLC_ROLE="${DMLC_ROLE:-worker}"
 # optimizer parameters
 export LR=0.00354;   
 export OPTIONS=--synthetic_data\ --eval_use_npz; 
@@ -152,23 +127,23 @@ TOTAL_BATCH_SIZE=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER*$BATCH_PER_GPU))
 TOTAL_GPU_NUM=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER))
 echo "total batch size is $TOTAL_BATCH_SIZE"
 
-if [ "${BYTEPS_TRACE_ON}" = "1" ]; then
-    echo "BYTEPS_TRACE_DIR: ${BYTEPS_TRACE_DIR}"
-    echo "BYTEPS_TRACE_START_STEP: ${BYTEPS_TRACE_START_STEP}"
-    echo "BYTEPS_TRACE_END_STEP: ${BYTEPS_TRACE_END_STEP}"
-    mkdir -p ${BYTEPS_TRACE_DIR}
-fi
-
 ### RDMA
-RDMA_DEVICE=mlx5_0 \
+export RDMA_DEVICE="${RDMA_DEVICE:-mlx5_0}"
 if [ "$RDMA_DEVICE" != "" ]; then
         export NCCL_IB_DISABLE=0 
         export NCCL_IB_HCA=mlx5_0:1 
         export NCCL_IB_GID_INDEX=3 
         export HOROVOD_MPI_THREADS_DISABLE=1
+        echo "Ebable RDMA!"
 else
         export NCCL_IB_DISABLE=1 
+        echo "Disable RDMA!"
 fi
+
+### for horovod
+export HOST_LIST="localhost:${WORKER_GPU_NUM}"
+LISTEN_PORT=12345
+echo "HOST_LIST:$HOST_LIST, PORT:$LISTEN_PORT"
 
 ### Nvprof
 export NVPROF="${NVPROF:-0}"
@@ -177,14 +152,12 @@ if [ "$NVPROF" = "1" ]; then
 else
     NVPROF_COMMAND=""
 fi
-
-### for horovod
-export HOST_LIST="${HOST_LIST:-localhost:${WORKER_GPU_NUM}}"
-LISTEN_PORT=12345
+echo "NVPROF_COMMAND:$NVPROF_COMMAND"
 
 ### take different actions for different hosts
 if [ "${DMLC_WORKER_ID}" = "0" ]; then
-    readarray -d , -t HOST_IP_NP_LIST <<<"$HOST_LIST"
+    IFS=, read -a HOST_IP_NP_LIST <<<"$HOST_LIST"
+    # readarray -d , -t HOST_IP_NP_LIST <<<"$HOST_LIST"
 
     IFS=':'
     for(( id=1; id < ${#HOST_IP_NP_LIST[@]}; id++ ))
@@ -210,7 +183,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
                 -p ${LISTEN_PORT} \
                 ${NVPROF_COMMAND} \
                 --cycle-time-ms 0 \
-        python3 /root/gluon-nlp/scripts/bert/run_pretraining.py \
+        python3 ${ROOT_DIR}/gluon-nlp/scripts/bert/run_pretraining.py \
             --data=$DATA \
             --data_eval=$DATAEVAL \
             --optimizer $OPTIMIZER \

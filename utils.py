@@ -37,5 +37,8 @@ elif "readcfg_" in args.option:
 	with open("./cfg.json", "r") as fp:
 		cfg = json.load(fp)
 	target = args.option.split("readcfg_")[1]
-	print(list2bash_array(cfg[target])) 
+	if isinstance(cfg[target], list):
+		print(list2bash_array(cfg[target])) 
+	else:
+		print(cfg[target])
 

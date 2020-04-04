@@ -1,8 +1,12 @@
 #!/bin/bash -e
-all_ip=$(python3 utils.py --option readcfg_host)
 
-# get the number of visible devices and host list
-DOCKER_VISIBLE_DEVICES=0,1,2,3
+### Get all ip address of hosts
+all_ip=$(python3 utils.py --option readcfg_host)
+### Get the number of hosts
+host_num=${#all_ip[@]}
+
+## Get the number of visible devices and host list
+DOCKER_VISIBLE_DEVICES=$(python3 utils.py --option readcfg_visible_device)
 readarray -d , -t strarr <<<"$DOCKER_VISIBLE_DEVICES"
 process_num=${#strarr[*]}
 all_ip_str=${all_ip[0]}:${process_num}
@@ -11,12 +15,17 @@ do
 	all_ip_str=${all_ip_str},${all_ip[$id]}:${process_num}
 done
 
-HOROVOD_IMAGE_V=cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1
-# get the number of hosts
-host_num=${#all_ip[@]}
+### Read username and prompt info for log in
+HOST_USERNAME=$(python3 utils.py --option readcfg_username)
+HOST_PROMPT=$(python3 utils.py --option readcfg_prompt)
+HOST_HOME_PATH=/home/net/hphu
+HOST_TRACE_PATH=${HOST_HOME_PATH}/traces
 
-HOME_PATH=/root/hphu
-LOCAL_HOME_PATH=/home/huhanpeng/hphu
+DOCKER_HOME_PATH=/root/hphu
+LOCAL_HOME_PATH=/home/net/hphu/local
+
+HOROVOD_IMAGE_V=cuda10.0_mx1.5.0-v1.1_bpf_v1.0.7
+
 
 function dockerStop {
 	# $1 is the container name
@@ -32,18 +41,13 @@ function dockerRemove {
 		echo "Remove container $1"
 	fi
 }
-function prePrepare {
-	mkdir -p ${HOME_PATH}/log
-	if [ ! -d "${HOME_PATH}/byteprofile_benchmark" ]; then
-		exit 1
-	fi
-}
+
 ## To avoid integrating multiple operators into one single events
 # \TODO: may influence the performance
 function getDockerCmd {
 	DOCKER_CMD="nohup nvidia-docker run \
-                            -v ${HOME_PATH}:${HOME_PATH} \
-                            -v /root/traces:/root/traces \
+                            -v ${HOST_HOME_PATH}:${DOCKER_HOME_PATH} \
+                            -v ${HOST_TRACE_PATH}:/root/traces \
                             -v /root/.ssh:/root/.ssh \
                             -v /run/sshd:/run/sshd \
                             --shm-size 32768m \
@@ -56,18 +60,26 @@ function getDockerCmd {
                             -e HOST_LIST=${all_ip_str} \
                             -e BPF_INSTALL=${BPF_INSTALL} \
                             ${DOCKER_IMAGE} ${COMMAND} \
-                            > ${HOME_PATH}/log/host$1.txt 2>&1 &"
+                            > ${HOST_HOME_PATH}/log/host$1.txt 2>&1 &"
+}
+
+function launchHost {
+	/usr/bin/expect launcher.sh ${HOST_USERNAME} ${HOST_PROMPT} $@
 }
 
 function checkStatus {
-	retstr=$(/usr/bin/expect launcher.sh "$1" "docker ps | grep $2")
+	retstr=$(launchHost "$1" "docker ps | grep $2")
 	python3 utils.py --option status --retstr "${retstr}" --target "$2" --command "docker ps | grep $2"
 }
 
+########################################################################
+#######         Execute different commands accroding to $1        ###### 
+########################################################################
+
 if [ "$1" = "start" ]; then
-	COMMAND="bash ${HOME_PATH}/byteps_launcher/example/mxnet-gluon/run_gluon_bert.sh 10"
+	COMMAND="bash ${DOCKER_HOME_PATH}/byteps_launcher/example/mxnet-gluon/run_gluon_bert.sh 10"
 	if [ "$2" = "install" ]; then
-		DOCKER_IMAGE=haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1
+		DOCKER_IMAGE=haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.7
 		BPF_INSTALL=1
 	else
 		# no need to re-install horovod and gluon-nlp
@@ -76,26 +88,25 @@ if [ "$1" = "start" ]; then
 	fi
 	
 	# launch workers
-	for(( id=1; id < ${#all_ip[@]}; id++ ))
+	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		getDockerCmd ${id}
-		/usr/bin/expect launcher.sh "${all_ip[$id]}" "mkdir -p ${HOME_PATH}/log && cd ${HOME_PATH} && ${DOCKER_CMD}"
+		launchHost "${all_ip[$id]}" "mkdir -p ${HOST_HOME_PATH}/log && cd ${HOST_HOME_PATH} && ${DOCKER_CMD}"
 	done
-	# launch the first worker
-	id=0
-	getDockerCmd ${id}
-	/usr/bin/expect launcher.sh "${all_ip[$id]}" "mkdir -p ${HOME_PATH}/log && cd ${HOME_PATH} && ${DOCKER_CMD}"
+
 elif [ "$1" = "stop" ]; then
 	# launch workers
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
-		/usr/bin/expect launcher.sh "${all_ip[$id]}" "docker stop host${id} && docker rm host${id} &"
+		launchHost "${all_ip[$id]}" "docker stop host${id} && docker rm host${id} &"
 	done
+
 elif [ "$1" = "status" ]; then
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		checkStatus "${all_ip[$id]}" "host${id}"
 	done
+
 elif [ "$1" = "collect" ]; then
 	cd ${LOCAL_HOME_PATH}
 	if [ -s "${LOCAL_HOME_PATH}/traces" ]; then
@@ -104,18 +115,21 @@ elif [ "$1" = "collect" ]; then
 		mkdir -p ${LOCAL_HOME_PATH}/traces
 	fi
 
+	### Remote copy trace files
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
-		scp -r root@${all_ip[$id]}:/root/traces ${LOCAL_HOME_PATH}/traces/host$id
+		scp -r ${HOST_USERNAME}@${all_ip[$id]}:${HOST_TRACE_PATH} ${LOCAL_HOME_PATH}/traces/host$id
 	done
-elif [ "$1" = "tar" ]; then
-	cd ${LOCAL_HOME_PATH}
+
+	### Compress
 	TAR_NAME="traces.tar"
 	if [ -s "${TAR_NAME}" ]; then
         rm ${TAR_NAME}
 	fi
 	tar -cf ${TAR_NAME} traces/
 	# scp ${TAR_NAME} huhanpeng@10.0.243.54:/Users/huhanpeng/
+
+### Set the configuration of physical machines
 elif [ "$1" = "gpu" ]; then
 	if [ "$2" = "info" ]; then
 		GPU_COMMAND="nvidia-smi --query-gpu=clocks.default_applications.memory --format=csv && \
@@ -131,7 +145,7 @@ elif [ "$1" = "gpu" ]; then
 	fi
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
-		retstr=$(/usr/bin/expect launcher.sh "${all_ip[$id]}" "${GPU_COMMAND}")
+		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
 		python3 utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "tc" ]; then
@@ -149,7 +163,7 @@ elif [ "$1" = "tc" ]; then
 	fi
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
-		retstr=$(/usr/bin/expect launcher.sh "${all_ip[$id]}" "${GPU_COMMAND}")
+		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
 		python3 utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "ip" ]; then
@@ -158,73 +172,49 @@ elif [ "$1" = "ip" ]; then
 	elif [ "$2" = "rate" ]; then
 		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
 		LIMIT_SOURCES=$(python -c 'import sys; print(",".join(sys.argv[1:]))' "${all_ip[@]}")
-		GPU_COMMAND="cd ${HOME_PATH} && iptables-restore < rules.v4 && \
+		GPU_COMMAND="cd ${HOST_HOME_PATH} && iptables-restore < rules.v4 && \
                      iptables --new-chain RATE-LIMIT && \
                      iptables --append INPUT --match conntrack --ctstate NEW --jump RATE-LIMIT && \
                      iptables --append RATE-LIMIT -s ${LIMIT_SOURCES} --match limit --limit $3/sec --limit-burst $3 --jump ACCEPT && \
                      iptables --append RATE-LIMIT -s ${LIMIT_SOURCES} --jump DROP"
 	elif [ "$2" = "reset" ]; then
-		GPU_COMMAND="cd ${HOME_PATH} && iptables-restore < rules.v4"
+		GPU_COMMAND="cd ${HOST_HOME_PATH} && iptables-restore < rules.v4"
 	else
 		echo "Argument Error!: unexpected \$2: '$2'"
 		exit 1
 	fi
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
-		retstr=$(/usr/bin/expect launcher.sh "${all_ip[$id]}" "${GPU_COMMAND}")
+		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
 		python3 utils.py --option "status" --retstr "${retstr}"
 	done
-elif [ "$1" = "retrive" ]; then
-	export BYTEPS_SERVER_MXNET_PATH=/root/incubator-mxnet
-	export MXNET_GPU_WORKER_NTHREADS=1
-	export BYTEPS_FORCE_DISTRIBUTED=1
+elif [ "$1" = "backup" ]; then
+	### launch an image
+	nvidia-docker run -it --shm-size 8G --net host --name byteprofile \
+		-v /home/net/hphu/traces:/root/traces \
+        -v /root/.ssh:/root/.ssh \
+        -v /run/sshd:/run/sshd \
+        -v /etc/libibverbs.d:/etc/libibverbs.d \
+        haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.7 /bin/bash
 
-	# profiling env
-	export BYTEPS_TRACE_ON='1' 
-	export BYTEPS_TRACE_END_STEP=20
-	export BYTEPS_TRACE_START_STEP=10
-	export BYTEPS_TRACE_DIR='./traces'
+    ### reinstall nccl and horovod
+    cd /root/nccl && make clean && make -j src.build && make pkg.txz.build && \
+    mkdir -p /usr/local/nccl && \
+    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 && \
+    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf && \
+    ldconfig && ln -sf /usr/local/nccl/include/* /usr/include/
 
-	# branch env
-	export BYTEPS_BRANCH="${BYTEPS_BRANCH:-byteprofile}"
-	export GLUON_NLP_BRANCH="${GLUON_NLP_BRANCH:-bert-byteprofile}"
-
-	# ---- retrive 
-
-	unset DMLC_ROLE
-	unset DMLC_PS_ROOT_URI
-	unset DMLC_PS_ROOT_PORT
-	unset DMLC_NUM_WORKER 
-	unset DMLC_NUM_SERVER
-	unset DMLC_WORKER_ID 
+    cd /usr/local/horovod && python3 setup.py sdist && \
+    HOROVOD_NCCL_HOME=/usr/local/nccl \
+    HOROVOD_GPU_ALLREDUCE=NCCL \
+    HOROVOD_GPU_BROADCAST=NCCL \
+    HOROVOD_WITH_MPI=1 \
+    HOROVOD_WITHOUT_TENSORFLOW=1 \
+    HOROVOD_WITHOUT_PYTORCH=1 \
+    HOROVOD_WITH_MXNET=1 pip3 install --no-cache-dir dist/horovod* && \
+    cp -r /usr/local/horovod/examples /root/horovod_examples
 
 
-	unset BYTEPS_TRACE_ON
-	unset BYTEPS_TRACE_END_STEP
-	unset BYTEPS_TRACE_START_STEP
-	unset BYTEPS_TRACE_DIR
-	unset MXNET_GPU_WORKER_NTHREADS
-
-	unset https_proxy
-	unset http_proxy
-	unset no_proxy
-
-	unset TRUNCATE_NORM
-	unset BYTEPS_BRANCH
-	unset GLUON_NLP_BRANCH
-	unset DMLC_ROLE
-
-	cd /usr/local/byteps 
-	pip3 uninstall -y byteps
-	python3 setup.py clean --all
-	cd /usr/local 
-	rm -rf byteps
-
-	docker commit -c "ENV BYTEPS_TRACE_DIR='' BYTEPS_TRACE_START_STEP='' BYTEPS_TRACE_END_STEP='' BYTEPS_TRACE_ON='' " test hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
-	docker push hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
-	docker rmi hub.byted.org/arnold/lab.hphu.mxnet_byteps:${HOROVOD_IMAGE_V}
-
-	nvidia-docker run -it --shm-size 32768m  --net host --name byteprofile haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1 /bin/bash
 	docker run --rm -it --shm-size 32768m --runtime=nvidia --net host --name byteprofile haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.1 /bin/bash
 else
 	echo "Argument Error!: unexpected '$1'"

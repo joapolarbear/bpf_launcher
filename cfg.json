@@ -1,5 +1,8 @@
 {
 	"host": [
-		"10.22.146.23",
-		"10.22.149.94"]
+		"net-g5",
+		"net-g4"],
+	"visible_device": "0,1,2,3",
+	"username": "root",
+	"prompt": "root@"
 }
