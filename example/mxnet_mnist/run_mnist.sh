@@ -52,7 +52,8 @@ fi
 export DMLC_NUM_WORKER="${DMLC_NUM_WORKER:-1}"
 TOTAL_BATCH_SIZE=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER*$BATCH_PER_GPU))
 TOTAL_GPU_NUM=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER))
-echo "total batch size is $TOTAL_BATCH_SIZE"
+echo "Total batch size is $TOTAL_BATCH_SIZE"
+echo "Total GPU num is $TOTAL_GPU_NUM"
 
 ### for horovod
 export HOST_LIST="localhost:${WORKER_GPU_NUM}"
@@ -132,16 +133,18 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         -x HOROVOD_FUSION_THRESHOLD=0 \
         -x HOROVOD_CYCLE_TIME=0 \
         -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR/comm.json \
-        -x BYTEPS_TRACE_ON=$BYTEPS_TRACE_ON \
-        -x BYTEPS_TRACE_DIR=$BYTEPS_TRACE_DIR \
-        -x BYTEPS_TRACE_START_STEP=$BYTEPS_TRACE_START_STEP \
-        -x BYTEPS_TRACE_END_STEP=$BYTEPS_TRACE_END_STEP \
-        -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
+        -x BYTEPS_TRACE_ON \
+        -x BYTEPS_TRACE_DIR \
+        -x BYTEPS_TRACE_START_STEP \
+        -x BYTEPS_TRACE_END_STEP \
         -x NCCL_DEBUG=INFO \
+        -x NCCL_DEBUG_SUBSYS=INIT \
+        -x NCCL_ALGO=Tree \
+        -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
         -x LD_LIBRARY_PATH -x PATH \
         -mca pml ob1 -mca btl ^openib --allow-run-as-root \
         python3 /root/horovod_examples/mxnet_mnist.py
-
+        
 else
     /usr/sbin/sshd -p ${LISTEN_PORT}
     echo "start to listen to port ${LISTEN_PORT}"

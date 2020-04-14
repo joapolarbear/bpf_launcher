@@ -167,6 +167,24 @@ elif [ "$1" = "tc" ]; then
 		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
 		python3 utils.py --option "status" --retstr "${retstr}"
 	done
+elif [ "$1" = "mlnx" ]; then
+	if [ "$2" = "info" ]; then
+		GPU_COMMAND="mlnx_qos -i eth10"
+	elif [ "$2" = "add" ]; then
+		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
+		LIMIT_SOURCES=$(python -c 'import sys; print(",".join(sys.argv[1:]))' "${all_ip[@]}")
+		GPU_COMMAND="mlnx_qos -i eth10 -r 0,0,0,$3,0,0,0,0"
+	elif [ "$2" = "reset" ]; then
+		GPU_COMMAND="mlnx_qos -i eth10 -r 0,0,0,0,0,0,0,0"
+	else
+		echo "Argument Error!: unexpected \$2: '$2'"
+		exit 1
+	fi
+	for(( id=0; id < ${#all_ip[@]}; id++ ))
+	do
+		retstr=$(/usr/bin/expect launcher.sh "${all_ip[$id]}" "${GPU_COMMAND}")
+		python3 utils.py --option "status" --retstr "${retstr}"
+	done
 elif [ "$1" = "ip" ]; then
 	if [ "$2" = "info" ]; then
 		GPU_COMMAND="iptables -L -nv --line-numbers"

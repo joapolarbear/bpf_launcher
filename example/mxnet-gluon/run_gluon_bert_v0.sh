@@ -23,12 +23,62 @@ echo "WORKER_GPU_NUM: $WORKER_GPU_NUM"
 echo "GPUS: $GPUS"
 
 ### root directory
-export ROOT_DIR=/root
-cd ${ROOT_DIR} 
+if [ "$HOME" = "/root" ]; then
+    export ROOT_DIR=/root
+else
+    export ROOT_DIR=$HOME/hphu
+    mkdir -p $ROOT_DIR
+fi
+
+########################## re-install something ##########################
+# ----------------- re-install nccl -----------------
+if [ "$NCCL_REINSTALL" = "1" ]; then
+    cd ${ROOT_DIR}/nccl && git pull
+    make -j src.build && make pkg.txz.build
+    mkdir -p /usr/local/nccl 
+    tar -Jxf ./build/pkg/txz/nccl*.txz -C /usr/local/nccl/ --strip-components 1 
+    echo "/usr/local/nccl/lib" >> /etc/ld.so.conf.d/nvidia.conf 
+    ldconfig
+    ln -sf /usr/local/nccl/include/* /usr/include/
+fi
+
+if [ "$NCCL_REINSTALL" = "1" ]; then
+    cd ${ROOT_DIR}
+    if [ ! -s "nccl-tests" ]; then
+        git clone --recurse-submodules https://github.com/NVIDIA/nccl-tests.git
+    fi
+    cd nccl-tests
+    make clean && make
+    ./build/all_reduce_perf -b 8 -e 256M -f 2 -g ${WORKER_GPU_NUM}
+fi 
+
+# ----------------- re-install horovod and gluon-nlp -----------------
+if [ "$BPF_INSTALL" = "1" ]; then 
+    cd /usr/local/horovod 
+    pip3 uninstall -y horovod
+    python3 setup.py clean --all
+
+    git pull
+    python3 setup.py sdist
+    HOROVOD_NCCL_HOME=/usr/local/nccl \
+    HOROVOD_GPU_ALLREDUCE=NCCL \
+    HOROVOD_GPU_BROADCAST=NCCL \
+    HOROVOD_WITH_MPI=1 \
+    HOROVOD_WITHOUT_TENSORFLOW=1 \
+    HOROVOD_WITHOUT_PYTORCH=1 \
+    HOROVOD_WITH_MXNET=1 pip3 install --no-cache-dir dist/horovod*
+
+    ### install horovod
+    cd /root/gluon-nlp
+    python3 setup.py install
+fi
+########################################################################
 
 # ---------------------- start to run ----------------------
 DATA="/tmp/wiki_en_uncased_data/wiki_en_uncased_0*"
 OPTIMIZER="bertadam"
+cd ${ROOT_DIR}    
+
 ## other evnvironment variables
 export DMLC_ROLE="${DMLC_ROLE:-worker}"
 # optimizer parameters
@@ -75,26 +125,34 @@ else
 fi
 TOTAL_BATCH_SIZE=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER*$BATCH_PER_GPU))
 TOTAL_GPU_NUM=$(($WORKER_GPU_NUM*$DMLC_NUM_WORKER))
-echo "Total batch size is $TOTAL_BATCH_SIZE"
-echo "Total GPU num is $TOTAL_GPU_NUM"
+echo "total batch size is $TOTAL_BATCH_SIZE"
 
 ### RDMA
-# export RDMA_DEVICE="${RDMA_DEVICE:-mlx5_0}"
+export RDMA_DEVICE="${RDMA_DEVICE:-mlx5_0}"
 if [ "$RDMA_DEVICE" != "" ]; then
-    RDMA_COMMAND="-x NCCL_IB_DISABLE=0 \
-                    -x NCCL_IB_HCA=mlx5_0:1 \
-                    -x NCCL_IB_GID_INDEX=3 \
-                    -x HOROVOD_MPI_THREADS_DISABLE=1 "
-    echo "Ebable RDMA!"
+        export NCCL_IB_DISABLE=0 
+        export NCCL_IB_HCA=mlx5_0:1 
+        export NCCL_IB_GID_INDEX=3 
+        export HOROVOD_MPI_THREADS_DISABLE=1
+        echo "Ebable RDMA!"
 else
-    RDMA_COMMAND="-x NCCL_IB_DISABLE=1"
-    echo "Disable RDMA!"
+        export NCCL_IB_DISABLE=1 
+        echo "Disable RDMA!"
 fi
 
 ### for horovod
-export HOST_LIST="${HOST_LIST:-localhost:${WORKER_GPU_NUM}}"
+export HOST_LIST="localhost:${WORKER_GPU_NUM}"
 LISTEN_PORT=12345
 echo "HOST_LIST:$HOST_LIST, PORT:$LISTEN_PORT"
+
+### Nvprof
+export NVPROF="${NVPROF:-0}"
+if [ "$NVPROF" = "1" ]; then
+    NVPROF_COMMAND="nvprof --print-gpu-trace -o ${BYTEPS_TRACE_DIR}/nvprof/simpleMPI.%q{OMPI_COMM_WORLD_RANK}.nvvp"
+else
+    NVPROF_COMMAND=""
+fi
+echo "NVPROF_COMMAND:$NVPROF_COMMAND"
 
 ### take different actions for different hosts
 if [ "${DMLC_WORKER_ID}" = "0" ]; then
@@ -118,21 +176,13 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
     done
     unset IFS
 
-    mpirun -np ${TOTAL_GPU_NUM} -H ${HOST_LIST} \
-        ${RDMA_COMMAND} \
-        -x HOROVOD_FUSION_THRESHOLD=0 \
-        -x HOROVOD_CYCLE_TIME=0 \
-        -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR/comm.json \
-        -x BYTEPS_TRACE_ON \
-        -x BYTEPS_TRACE_DIR \
-        -x BYTEPS_TRACE_START_STEP \
-        -x BYTEPS_TRACE_END_STEP \
-        -x NCCL_DEBUG=INFO \
-        -x NCCL_DEBUG_SUBSYS=INIT \
-        -x NCCL_ALGO=Tree \
-        -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
-        -x LD_LIBRARY_PATH -x PATH \
-        -mca pml ob1 -mca btl ^openib --allow-run-as-root \
+    horovodrun --disable-cache -np ${TOTAL_GPU_NUM} \
+                --timeline-filename $BYTEPS_TRACE_DIR/comm.json \
+                --fusion-threshold-mb 0 \
+                -H ${HOST_LIST} \
+                -p ${LISTEN_PORT} \
+                ${NVPROF_COMMAND} \
+                --cycle-time-ms 0 \
         python3 ${ROOT_DIR}/gluon-nlp/scripts/bert/run_pretraining.py \
             --data=$DATA \
             --data_eval=$DATAEVAL \
