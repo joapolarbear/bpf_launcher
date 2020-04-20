@@ -97,12 +97,14 @@ LISTEN_PORT=12345
 echo "HOST_LIST:$HOST_LIST, PORT:$LISTEN_PORT"
 
 ### Create Trace directories
+if [ ! -s $BYTEPS_TRACE_DIR ]; then
+    mkdir -p $BYTEPS_TRACE_DIR
+fi
+rm -rf $BYTEPS_TRACE_DIR/*
 for(( id=0; id < ${WORKER_GPU_NUM}; id++ ))
 do
     GPU_PATH=$BYTEPS_TRACE_DIR/$id
-    if [ ! -s $GPU_PATH ]; then
-        mkdir -p $GPU_PATH
-    fi
+    mkdir -p $GPU_PATH
 done
 
 ### take different actions for different hosts

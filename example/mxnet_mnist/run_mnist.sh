@@ -104,13 +104,15 @@ if [ "$BPF_INSTALL" = "1" ]; then
 fi
 ########################################################################
 
-### Create Trace directories
+### Create Trace directories and clear it
+if [ ! -s $BYTEPS_TRACE_DIR ]; then
+    mkdir -p $BYTEPS_TRACE_DIR
+fi
+rm -rf $BYTEPS_TRACE_DIR/*
 for(( id=0; id < ${WORKER_GPU_NUM}; id++ ))
 do
     GPU_PATH=$BYTEPS_TRACE_DIR/$id
-    if [ ! -s $GPU_PATH ]; then
-        mkdir -p $GPU_PATH
-    fi
+    mkdir -p $GPU_PATH
 done
 
 # ---------------------- start to run ----------------------
