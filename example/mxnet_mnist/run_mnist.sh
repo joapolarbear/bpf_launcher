@@ -104,6 +104,15 @@ if [ "$BPF_INSTALL" = "1" ]; then
 fi
 ########################################################################
 
+### Create Trace directories
+for(( id=0; id < ${WORKER_GPU_NUM}; id++ ))
+do
+    GPU_PATH=$BYTEPS_TRACE_DIR/$id
+    if [ ! -s $GPU_PATH ]; then
+        mkdir -p $GPU_PATH
+    fi
+done
+
 # ---------------------- start to run ----------------------
 
 ### take different actions for different hosts
@@ -139,7 +148,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         -x BYTEPS_TRACE_END_STEP \
         -x NCCL_DEBUG=INFO \
         -x NCCL_DEBUG_SUBSYS=INIT \
-        -x NCCL_ALGO=Tree \
+        -x NCCL_ALGO=Ring \
         -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
         -x LD_LIBRARY_PATH -x PATH \
         -mca pml ob1 -mca btl ^openib --allow-run-as-root \

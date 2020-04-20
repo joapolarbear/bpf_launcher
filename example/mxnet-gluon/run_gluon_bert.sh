@@ -96,6 +96,15 @@ export HOST_LIST="${HOST_LIST:-localhost:${WORKER_GPU_NUM}}"
 LISTEN_PORT=12345
 echo "HOST_LIST:$HOST_LIST, PORT:$LISTEN_PORT"
 
+### Create Trace directories
+for(( id=0; id < ${WORKER_GPU_NUM}; id++ ))
+do
+    GPU_PATH=$BYTEPS_TRACE_DIR/$id
+    if [ ! -s $GPU_PATH ]; then
+        mkdir -p $GPU_PATH
+    fi
+done
+
 ### take different actions for different hosts
 if [ "${DMLC_WORKER_ID}" = "0" ]; then
     IFS=, read -a HOST_IP_NP_LIST <<<"$HOST_LIST"
