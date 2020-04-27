@@ -123,7 +123,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
     # readarray -d , -t HOST_IP_NP_LIST <<<"$HOST_LIST"
 
     IFS=':'
-    for(( id=1; id < ${#HOST_IP_NP_LIST[@]}; id++ ))
+    for(( id=0; id < ${#HOST_IP_NP_LIST[@]}; id++ ))
     do
         HOST_IP_NP=${HOST_IP_NP_LIST[$id]}
         HOST_INFO=($HOST_IP_NP)
@@ -143,7 +143,8 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         ${RDMA_COMMAND} \
         -x HOROVOD_FUSION_THRESHOLD=0 \
         -x HOROVOD_CYCLE_TIME=0 \
-        -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR/comm.json \
+        -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR \
+        -x HOROVOD_LOG_LEVEL=warning \
         -x BYTEPS_TRACE_ON \
         -x BYTEPS_TRACE_DIR \
         -x BYTEPS_TRACE_START_STEP \

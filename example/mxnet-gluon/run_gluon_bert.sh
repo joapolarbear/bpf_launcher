@@ -59,7 +59,6 @@ export BYTEPS_NCCL_GROUP_SIZE="${BYTEPS_NCCL_GROUP_SIZE:-16}"
 # export NVIDIA_VISIBLE_DEVICES="${GPUS:-0,1,2,3,4,5,6,7}"
 export DMLC_WORKER_ID="${DMLC_WORKER_ID:-0}"
 export DMLC_NUM_WORKER="${DMLC_NUM_WORKER:-1}"
-export NCCL_MIN_NRINGS="${NCCL_MIN_NRINGS:-16}"
 export MXNET_EXEC_BULK_EXEC_MAX_NODE_TRAIN_FWD="${MXNET_EXEC_BULK_EXEC_MAX_NODE_TRAIN_FWD:-120}"
 export MXNET_EXEC_BULK_EXEC_MAX_NODE_TRAIN_BWD="${MXNET_EXEC_BULK_EXEC_MAX_NODE_TRAIN_BWD:-120}"
 export MXNET_SAFE_ACCUMULATION="${MXNET_SAFE_ACCUMULATION:-1}"
@@ -113,7 +112,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
     # readarray -d , -t HOST_IP_NP_LIST <<<"$HOST_LIST"
 
     IFS=':'
-    for(( id=1; id < ${#HOST_IP_NP_LIST[@]}; id++ ))
+    for(( id=0; id < ${#HOST_IP_NP_LIST[@]}; id++ ))
     do
         HOST_IP_NP=${HOST_IP_NP_LIST[$id]}
         HOST_INFO=($HOST_IP_NP)
@@ -133,14 +132,15 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         ${RDMA_COMMAND} \
         -x HOROVOD_FUSION_THRESHOLD=0 \
         -x HOROVOD_CYCLE_TIME=0 \
-        -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR/comm.json \
+        -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR \
+        -x HOROVOD_LOG_LEVEL=warning \
         -x BYTEPS_TRACE_ON \
         -x BYTEPS_TRACE_DIR \
         -x BYTEPS_TRACE_START_STEP \
         -x BYTEPS_TRACE_END_STEP \
         -x NCCL_DEBUG=INFO \
         -x NCCL_DEBUG_SUBSYS=INIT \
-        -x NCCL_ALGO=Tree \
+        -x NCCL_ALGO=Ring \
         -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
         -x LD_LIBRARY_PATH -x PATH \
         -mca pml ob1 -mca btl ^openib --allow-run-as-root \

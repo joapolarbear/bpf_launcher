@@ -24,7 +24,7 @@ HOST_TRACE_PATH=${HOST_HOME_PATH}/traces
 DOCKER_HOME_PATH=/root/hphu
 LOCAL_HOME_PATH=/home/net/hphu/local
 
-HOROVOD_IMAGE_V=cuda10.0_mx1.5.0-v1.1_bpf_v1.0.7
+HOROVOD_IMAGE_V=cuda10.0_mx1.5.0-v1.1_bpf_v1.0.10
 
 
 function dockerStop {
@@ -214,7 +214,7 @@ elif [ "$1" = "backup" ]; then
         -v /root/.ssh:/root/.ssh \
         -v /run/sshd:/run/sshd \
         -v /etc/libibverbs.d:/etc/libibverbs.d \
-        haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.7 /bin/bash
+        haaanpeng/byteprofile:cuda10.0_mx1.5.0-v1.1_bpf_v1.0.10 /bin/bash
 
     ### reinstall nccl and horovod
     cd /root/nccl && make clean && make -j src.build && make pkg.txz.build && \
