@@ -142,7 +142,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         -x NCCL_DEBUG_SUBSYS=INIT \
         -x NCCL_ALGO=Ring \
         -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
-        -x LD_LIBRARY_PATH -x PATH \
+        -x LD_LIBRARY_PATH -x PATH -x MXNET_EXEC_BULK_EXEC_TRAIN \
         -mca pml ob1 -mca btl ^openib --allow-run-as-root \
         python3 ${ROOT_DIR}/gluon-nlp/scripts/bert/run_pretraining.py \
             --data=$DATA \
