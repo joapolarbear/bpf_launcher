@@ -34,11 +34,11 @@ elif args.option == "gpu" or args.option == "ip" or args.option == "tc":
 	assert _bash_arg[2].isdigit()
 
 elif "readcfg_" in args.option:
-	with open("./cfg.json", "r") as fp:
+	cur_dir = os.path.dirname(os.path.abspath(__file__))
+	with open(os.path.join(cur_dir, "./cfg.json"), "r") as fp:
 		cfg = json.load(fp)
 	target = args.option.split("readcfg_")[1]
 	if isinstance(cfg[target], list):
 		print(list2bash_array(cfg[target])) 
 	else:
 		print(cfg[target])
-

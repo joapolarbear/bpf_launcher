@@ -1,12 +1,12 @@
 #!/bin/bash -e
-
+SCRIPT_DIR=$(dirname $0)
 ### Get all ip address of hosts
-all_ip=($(python3 utils.py --option readcfg_host))
+all_ip=($(python3 $SCRIPT_DIR/utils.py --option readcfg_host))
 ### Get the number of hosts
 host_num=${#all_ip[@]}
 
 ## Get the number of visible devices and host list
-DOCKER_VISIBLE_DEVICES=$(python3 utils.py --option readcfg_visible_device)
+DOCKER_VISIBLE_DEVICES=$(python3 $SCRIPT_DIR/utils.py --option readcfg_visible_device)
 IFS=, read -a strarr <<<"$DOCKER_VISIBLE_DEVICES"
 process_num=${#strarr[*]}
 all_ip_str=${all_ip[0]}:${process_num}
@@ -16,8 +16,8 @@ do
 done
 
 ### Read username and prompt info for log in
-HOST_USERNAME=$(python3 utils.py --option readcfg_username)
-HOST_PROMPT=$(python3 utils.py --option readcfg_prompt)
+HOST_USERNAME=$(python3 $SCRIPT_DIR/utils.py --option readcfg_username)
+HOST_PROMPT=$(python3 $SCRIPT_DIR/utils.py --option readcfg_prompt)
 HOST_HOME_PATH=/home/net/hphu
 HOST_TRACE_PATH=${HOST_HOME_PATH}/traces
 
@@ -69,7 +69,7 @@ function launchHost {
 
 function checkStatus {
 	retstr=$(launchHost "$1" "docker ps | grep $2")
-	python3 utils.py --option status --retstr "${retstr}" --target "$2" --command "docker ps | grep $2"
+	python3 $SCRIPT_DIR/utils.py --option status --retstr "${retstr}" --target "$2" --command "docker ps | grep $2"
 }
 
 ########################################################################
@@ -136,7 +136,7 @@ elif [ "$1" = "gpu" ]; then
 		GPU_COMMAND="nvidia-smi --query-gpu=clocks.default_applications.memory --format=csv && \
                  nvidia-smi --query-gpu=clocks.applications.graphics --format=csv"
 	elif [ "$2" = "ac" ]; then
-		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
+		python3 $SCRIPT_DIR/utils.py --option "$1" --bash_arg "$1,$2,$3"
 		GPU_COMMAND="nvidia-smi -ac 877,$3"
 	elif [ "$2" = "reset" ]; then
 		GPU_COMMAND="nvidia-smi -ac 877,1380"
@@ -147,13 +147,13 @@ elif [ "$1" = "gpu" ]; then
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
-		python3 utils.py --option "status" --retstr "${retstr}"
+		python3 $SCRIPT_DIR/utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "tc" ]; then
 	if [ "$2" = "info" ]; then
 		GPU_COMMAND="tc qdisc show dev eth0 | grep root"
 	elif [ "$2" = "add" ]; then
-		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
+		python3 $SCRIPT_DIR/utils.py --option "$1" --bash_arg "$1,$2,$3"
 		LIMIT_SOURCES=$(python -c 'import sys; print(",".join(sys.argv[1:]))' "${all_ip[@]}")
 		GPU_COMMAND="tc qdisc add dev eth0 root tbf rate $3gbit burst 100mbit latency 400ms"
 	elif [ "$2" = "reset" ]; then
@@ -165,13 +165,13 @@ elif [ "$1" = "tc" ]; then
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
-		python3 utils.py --option "status" --retstr "${retstr}"
+		python3 $SCRIPT_DIR/utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "mlnx" ]; then
 	if [ "$2" = "info" ]; then
 		GPU_COMMAND="mlnx_qos -i eth10"
 	elif [ "$2" = "add" ]; then
-		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
+		python3 $SCRIPT_DIR/utils.py --option "$1" --bash_arg "$1,$2,$3"
 		LIMIT_SOURCES=$(python -c 'import sys; print(",".join(sys.argv[1:]))' "${all_ip[@]}")
 		GPU_COMMAND="mlnx_qos -i eth10 -r 0,0,0,$3,0,0,0,0"
 	elif [ "$2" = "reset" ]; then
@@ -183,13 +183,13 @@ elif [ "$1" = "mlnx" ]; then
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		retstr=$(/usr/bin/expect launcher.sh "${all_ip[$id]}" "${GPU_COMMAND}")
-		python3 utils.py --option "status" --retstr "${retstr}"
+		python3 $SCRIPT_DIR/utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "ip" ]; then
 	if [ "$2" = "info" ]; then
 		GPU_COMMAND="iptables -L -nv --line-numbers"
 	elif [ "$2" = "rate" ]; then
-		python3 utils.py --option "$1" --bash_arg "$1,$2,$3"
+		python3 $SCRIPT_DIR/utils.py --option "$1" --bash_arg "$1,$2,$3"
 		LIMIT_SOURCES=$(python -c 'import sys; print(",".join(sys.argv[1:]))' "${all_ip[@]}")
 		GPU_COMMAND="cd ${HOST_HOME_PATH} && iptables-restore < rules.v4 && \
                      iptables --new-chain RATE-LIMIT && \
@@ -205,7 +205,7 @@ elif [ "$1" = "ip" ]; then
 	for(( id=0; id < ${#all_ip[@]}; id++ ))
 	do
 		retstr=$(launchHost "${all_ip[$id]}" "${GPU_COMMAND}")
-		python3 utils.py --option "status" --retstr "${retstr}"
+		python3 $SCRIPT_DIR/utils.py --option "status" --retstr "${retstr}"
 	done
 elif [ "$1" = "backup" ]; then
 	### launch an image

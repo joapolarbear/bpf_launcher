@@ -145,6 +145,7 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         -x HOROVOD_CYCLE_TIME=0 \
         -x HOROVOD_TIMELINE=$BYTEPS_TRACE_DIR \
         -x HOROVOD_LOG_LEVEL=warning \
+        -x HOROVOD_TIMELINE_PRETTY=1 \
         -x BYTEPS_TRACE_ON \
         -x BYTEPS_TRACE_DIR \
         -x BYTEPS_TRACE_START_STEP \
@@ -152,6 +153,8 @@ if [ "${DMLC_WORKER_ID}" = "0" ]; then
         -x NCCL_DEBUG=INFO \
         -x NCCL_DEBUG_SUBSYS=INIT \
         -x NCCL_ALGO=Ring \
+        -x MXNET_EXEC_BULK_EXEC_TRAIN \
+        -x MXNET_GPU_WORKER_NTHREADS \
         -bind-to none -map-by slot -mca plm_rsh_args '-p 12345' \
         -x LD_LIBRARY_PATH -x PATH -x MXNET_EXEC_BULK_EXEC_TRAIN \
         -mca pml ob1 -mca btl ^openib --allow-run-as-root \
