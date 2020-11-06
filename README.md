@@ -1,7 +1,7 @@
 # A Launcher for Distribute ML tasks with BytePS/Horovod
 
 ## Configuration
-Before we start a trail, we need to specify some configuration information in `cfg.json`. We can add some configuration information to file `cfg.json`, which is organized in a JSON format. An example of the configuration file `cfg.json`, here the `host` field corresponds to a list of IP address of some host machines, and the field `visible_device` specify the visible devices on each machines.
+Before we start a trial, we need to specify some configuration information in `cfg.json`. We can add some configuration information to file `cfg.json`, which is organized in a JSON format. An example of the configuration file `cfg.json`, here the `host` field corresponds to a list of IP address of some host machines, and the field `visible_device` specify the visible devices on each machines.
 ```
 {
 	"host": [
